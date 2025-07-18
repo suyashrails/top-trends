@@ -1,5 +1,10 @@
 /**
  * Detects bursts in engagement for each n-gram (bigram/trigram/hashtag) using rolling statistics.
+ * This function will be called in a statement like
+ *         DataStream<TrendDetection> detectedTrends = ngramEvents
+ *          .keyBy(PostEvent::getToken)        // <--- Specify key: n-gram
+ *          .process(new TrendDetectFunction()) // <--- Stateful, keyed function
+ *          .name("Trend Detection");
  *
  * Input:  PostEvent   (token = n-gram string, platform, postCount, likes, comments, timestamp)
  * Output: TrendDetection (token, platform, windowEnd, zScore, engagement)
