@@ -1,13 +1,13 @@
 /**
- * Detects bursts in engagement for each trend token using rolling statistics.
+ * Detects bursts in engagement for each n-gram (bigram/trigram/hashtag) using rolling statistics.
  *
- * Input:  PostEvent   (token, platform, postCount, likes, comments, timestamp)
+ * Input:  PostEvent   (token = n-gram string, platform, postCount, likes, comments, timestamp)
  * Output: TrendDetection (token, platform, windowEnd, zScore, engagement)
  */
 public class TrendDetectFunction
         extends KeyedProcessFunction<String, PostEvent, TrendDetection> {
 
-    // Flink keyed state: rolling stats for this token (mean, stddev, count)
+    // State: rolling mean & stddev for engagement per n-gram (token)
     private transient ValueState<Stats> rollingStats;
 
     @Override
@@ -18,40 +18,40 @@ public class TrendDetectFunction
     }
 
     /**
-     * Called for every input event.
+     * For each PostEvent (one per n-gram), update state and emit trend if burst.
      *
-     * @param evt  Incoming post event (see below)
-     * @param ctx  Flink context (timestamp, key, timer access)
-     * @param out  Output collector for TrendDetection events
+     * @param evt  PostEvent with n-gram token, engagement info
+     * @param ctx  Flink context (key = n-gram)
+     * @param out  Output collector
      */
     @Override
     public void processElement(
-            PostEvent evt,         // input: single social post or aggregate
-            Context ctx,           // context: key, time, etc.
-            Collector<TrendDetection> out   // output: detected bursts
+            PostEvent evt,
+            Context ctx,
+            Collector<TrendDetection> out
     ) throws Exception {
-        // 1. Load or initialize rolling stats for this token
+        // Key for this state is now the n-gram (bigram/trigram/hashtag)
         Stats stats = rollingStats.value();
         if (stats == null) stats = Stats.init();
 
-        // 2. Compute engagement score for the event
+        // Compute engagement for this n-gram in this post
         double engagement = evt.getPostCount() + 0.2 * evt.getLikes() + 0.5 * evt.getComments();
 
-        // 3. Compute z-score vs historical mean/stddev for this trend token
+        // Calculate burstiness (z-score) for this n-gram
         double z = stats.std() > 0 ? (engagement - stats.mean()) / stats.std() : 0.0;
 
-        // 4. Emit detection if burst threshold exceeded
+        // If n-gram's engagement is a burst, emit a detected trend
         if (z > 2.5 && engagement > 1000) {
             out.collect(new TrendDetection(
-                evt.getToken(),
+                evt.getToken(),      // n-gram phrase or hashtag
                 evt.getPlatform(),
-                ctx.timestamp(),   // marks window end
+                ctx.timestamp(),
                 z,
                 engagement
             ));
         }
 
-        // 5. Update rolling stats for the next window
+        // Update rolling stats for this n-gram
         Stats updated = stats.update(engagement);
         rollingStats.update(updated);
     }
